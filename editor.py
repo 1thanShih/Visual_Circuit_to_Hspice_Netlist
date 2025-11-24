@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, filedialog, ttk
 from components import Resistor, Inductor, Capacitor, CMOS, Pin, VoltageSource, CurrentSource
 from circuit_utils import snap, dist, is_point_on_segment, get_closest_point_on_segment
 
@@ -24,10 +24,19 @@ class CircuitEditor:
         self.drag_data = {}
         self.del_style = tk.StringVar(value="CLICK") 
         
-        # --- [新增] 模擬參數預設值 ---
-        # 格式: Key: { 'active': Boolean, 'params': String, 'hint': String }
+        # --- [新增] 全域設定參數 (Global Settings) ---
+        self.global_settings = {
+            "lib_path": "",       # e.g., C:/hspice/mm018.l
+            "corner": "TT",       # e.g., TT, SS, FF
+            "temp": "25",         # e.g., 25
+            "def_n_model": "nch", # Default NMOS model name
+            "def_p_model": "pch", # Default PMOS model name
+            "options": "POST"     # .OPTIONS params
+        }
+
+        # 模擬指令設定
         self.sim_settings = {
-            ".OP":   {"active": False, "params": "", "hint": "(Operating Point - No params)"},
+            ".OP":   {"active": False, "params": "", "hint": "(Operating Point)"},
             ".TRAN": {"active": True,  "params": "1n 100n", "hint": "step stop [start]"},
             ".DC":   {"active": False, "params": "VIN 0 3.3 0.1", "hint": "src start stop step"},
             ".AC":   {"active": False, "params": "DEC 10 1 10k", "hint": "type np start stop"},
@@ -41,7 +50,6 @@ class CircuitEditor:
         toolbar = tk.Frame(self.root, bd=1, relief=tk.RAISED)
         toolbar.pack(side=tk.TOP, fill=tk.X)
         
-        # --- 下拉選單區 ---
         def create_dropdown(parent, text, items):
             mb = tk.Menubutton(parent, text=text, relief=tk.RAISED, padx=10)
             menu = tk.Menu(mb, tearoff=0)
@@ -64,9 +72,11 @@ class CircuitEditor:
         # --- 右側功能區 ---
         tk.Button(toolbar, text="Help(F1)", bg="lightblue", command=self.show_help).pack(side=tk.RIGHT)
         
-        # [修改] 輸出按鈕旁增加模擬設定按鈕
+        # 模擬與設定按鈕
         tk.Button(toolbar, text="Generate Netlist", bg="yellow", command=self.export_netlist).pack(side=tk.RIGHT, padx=5)
-        tk.Button(toolbar, text="Sim Settings", bg="#ccffcc", command=self.open_sim_settings).pack(side=tk.RIGHT, padx=5)
+        tk.Button(toolbar, text="Sim Settings", bg="#ccffcc", command=self.open_sim_settings).pack(side=tk.RIGHT, padx=2)
+        # [新增] 全域設定按鈕
+        tk.Button(toolbar, text="Global Config", bg="#e0e0e0", command=self.open_global_settings).pack(side=tk.RIGHT, padx=2)
         
         del_frame = tk.Frame(toolbar, bd=1, relief=tk.SUNKEN)
         del_frame.pack(side=tk.RIGHT, padx=10)
@@ -120,73 +130,116 @@ class CircuitEditor:
         elif c_type == "C": comp = Capacitor(self.canvas, x, y)
         elif c_type == "V": comp = VoltageSource(self.canvas, x, y)
         elif c_type == "I": comp = CurrentSource(self.canvas, x, y)
-        elif c_type == "NMOS": comp = CMOS(self.canvas, x, y, False)
-        elif c_type == "PMOS": comp = CMOS(self.canvas, x, y, True)
+        elif c_type == "NMOS": 
+            comp = CMOS(self.canvas, x, y, False)
+            # [新增] 使用設定中的預設 Model 名稱
+            comp.model = self.global_settings["def_n_model"]
+            comp.update_visuals() # 更新文字顯示
+        elif c_type == "PMOS": 
+            comp = CMOS(self.canvas, x, y, True)
+            # [新增] 使用設定中的預設 Model 名稱
+            comp.model = self.global_settings["def_p_model"]
+            comp.update_visuals()
         elif c_type == "PIN": comp = Pin(self.canvas, x, y)
+        
         if comp: self.components.append(comp)
         self.canvas.focus_set()
 
-    # --- [新增] 模擬設定視窗邏輯 ---
-    def open_sim_settings(self):
+    # --- [新增] 全域設定視窗邏輯 ---
+    def open_global_settings(self):
         win = tk.Toplevel(self.root)
-        win.title("HSPICE Analysis Setup")
-        win.geometry("500x350")
+        win.title("Global Configuration")
+        win.geometry("450x350")
         
-        # 暫存變數 (BooleanVar 和 StringVar 需要綁定到 UI)
-        vars_store = {}
+        # 1. Library & Process
+        lb_frame = tk.LabelFrame(win, text="Library & Process", padx=10, pady=10)
+        lb_frame.pack(fill=tk.X, padx=10, pady=5)
         
-        # 標題列
-        tk.Label(win, text="Enable", font=("Arial", 10, "bold")).grid(row=0, column=0, padx=5, pady=5)
-        tk.Label(win, text="Command", font=("Arial", 10, "bold")).grid(row=0, column=1, padx=5, pady=5, sticky="w")
-        tk.Label(win, text="Parameters", font=("Arial", 10, "bold")).grid(row=0, column=2, padx=5, pady=5, sticky="w")
+        tk.Label(lb_frame, text="Lib Path (.lib):").grid(row=0, column=0, sticky="e")
+        path_var = tk.StringVar(value=self.global_settings["lib_path"])
+        tk.Entry(lb_frame, textvariable=path_var, width=30).grid(row=0, column=1, padx=5)
         
-        # 動態生成控制項
-        row = 1
-        # 定義順序
-        order = [".TRAN", ".DC", ".AC", ".OP", ".TF", ".NOISE"]
+        def browse_lib():
+            filename = filedialog.askopenfilename(filetypes=[("Lib Files", "*.lib *.l"), ("All Files", "*.*")])
+            if filename: path_var.set(filename)
+        tk.Button(lb_frame, text="Browse", command=browse_lib).grid(row=0, column=2)
+
+        tk.Label(lb_frame, text="Corner (e.g. TT):").grid(row=1, column=0, sticky="e")
+        corn_var = tk.StringVar(value=self.global_settings["corner"])
+        tk.Entry(lb_frame, textvariable=corn_var, width=10).grid(row=1, column=1, sticky="w", padx=5)
+
+        # 2. Environment
+        env_frame = tk.LabelFrame(win, text="Environment", padx=10, pady=10)
+        env_frame.pack(fill=tk.X, padx=10, pady=5)
         
-        for cmd in order:
-            settings = self.sim_settings[cmd]
-            
-            # 1. Checkbox
-            var_active = tk.BooleanVar(value=settings["active"])
-            chk = tk.Checkbutton(win, variable=var_active)
-            chk.grid(row=row, column=0)
-            
-            # 2. Label
-            tk.Label(win, text=cmd, fg="blue").grid(row=row, column=1, sticky="w")
-            
-            # 3. Entry
-            var_params = tk.StringVar(value=settings["params"])
-            entry = tk.Entry(win, textvariable=var_params, width=30)
-            entry.grid(row=row, column=2, padx=5, sticky="w")
-            
-            # 4. Hint
-            tk.Label(win, text=settings["hint"], fg="gray", font=("Arial", 8)).grid(row=row, column=3, sticky="w")
-            
-            vars_store[cmd] = (var_active, var_params)
-            row += 1
-            
+        tk.Label(env_frame, text="Temperature (.TEMP):").grid(row=0, column=0, sticky="e")
+        temp_var = tk.StringVar(value=self.global_settings["temp"])
+        tk.Entry(env_frame, textvariable=temp_var, width=10).grid(row=0, column=1, sticky="w", padx=5)
+
+        tk.Label(env_frame, text="Options (.OPTION):").grid(row=1, column=0, sticky="e")
+        opt_var = tk.StringVar(value=self.global_settings["options"])
+        tk.Entry(env_frame, textvariable=opt_var, width=20).grid(row=1, column=1, sticky="w", padx=5)
+
+        # 3. Default Models
+        mod_frame = tk.LabelFrame(win, text="Default Component Models", padx=10, pady=10)
+        mod_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        tk.Label(mod_frame, text="Default NMOS Model:").grid(row=0, column=0, sticky="e")
+        nmod_var = tk.StringVar(value=self.global_settings["def_n_model"])
+        tk.Entry(mod_frame, textvariable=nmod_var).grid(row=0, column=1, sticky="w", padx=5)
+        
+        tk.Label(mod_frame, text="Default PMOS Model:").grid(row=1, column=0, sticky="e")
+        pmod_var = tk.StringVar(value=self.global_settings["def_p_model"])
+        tk.Entry(mod_frame, textvariable=pmod_var).grid(row=1, column=1, sticky="w", padx=5)
+
         def on_save():
-            # 將 UI 的值寫回 self.sim_settings
-            for cmd, (v_act, v_param) in vars_store.items():
-                self.sim_settings[cmd]["active"] = v_act.get()
-                self.sim_settings[cmd]["params"] = v_param.get()
+            self.global_settings["lib_path"] = path_var.get()
+            self.global_settings["corner"] = corn_var.get()
+            self.global_settings["temp"] = temp_var.get()
+            self.global_settings["options"] = opt_var.get()
+            self.global_settings["def_n_model"] = nmod_var.get()
+            self.global_settings["def_p_model"] = pmod_var.get()
             win.destroy()
-            
-        tk.Button(win, text="Save & Close", command=on_save, bg="lightgreen", width=15).grid(row=row+1, column=0, columnspan=4, pady=15)
+
+        tk.Button(win, text="Save Settings", command=on_save, bg="lightgreen", width=15).pack(pady=10)
         
         win.transient(self.root)
         win.grab_set()
         self.root.wait_window(win)
 
-    # --- 其餘編輯功能 (select_item ... on_double_click) 保持不變 ---
-    # 請保留這些函數:
-    # select_item, deselect_all, toggle_delete_mode, toggle_wire_mode, delete_target,
-    # get_best_snap_point, on_click, on_mouse_move, on_drag, on_release, on_double_click,
-    # rotate_selection, mirror_selection, show_help
-    # solve_connectivity (務必保留上一版支援 T-Junction 的版本)
-    
+    def open_sim_settings(self):
+        win = tk.Toplevel(self.root)
+        win.title("HSPICE Analysis Setup")
+        win.geometry("500x350")
+        vars_store = {}
+        tk.Label(win, text="Enable", font=("Arial", 10, "bold")).grid(row=0, column=0, padx=5, pady=5)
+        tk.Label(win, text="Command", font=("Arial", 10, "bold")).grid(row=0, column=1, padx=5, pady=5, sticky="w")
+        tk.Label(win, text="Parameters", font=("Arial", 10, "bold")).grid(row=0, column=2, padx=5, pady=5, sticky="w")
+        row = 1
+        order = [".TRAN", ".DC", ".AC", ".OP", ".TF", ".NOISE"]
+        for cmd in order:
+            settings = self.sim_settings[cmd]
+            var_active = tk.BooleanVar(value=settings["active"])
+            chk = tk.Checkbutton(win, variable=var_active)
+            chk.grid(row=row, column=0)
+            tk.Label(win, text=cmd, fg="blue").grid(row=row, column=1, sticky="w")
+            var_params = tk.StringVar(value=settings["params"])
+            entry = tk.Entry(win, textvariable=var_params, width=30)
+            entry.grid(row=row, column=2, padx=5, sticky="w")
+            tk.Label(win, text=settings["hint"], fg="gray", font=("Arial", 8)).grid(row=row, column=3, sticky="w")
+            vars_store[cmd] = (var_active, var_params)
+            row += 1
+        def on_save():
+            for cmd, (v_act, v_param) in vars_store.items():
+                self.sim_settings[cmd]["active"] = v_act.get()
+                self.sim_settings[cmd]["params"] = v_param.get()
+            win.destroy()
+        tk.Button(win, text="Save & Close", command=on_save, bg="lightgreen", width=15).grid(row=row+1, column=0, columnspan=4, pady=15)
+        win.transient(self.root)
+        win.grab_set()
+        self.root.wait_window(win)
+
+    # --- 保留原本的功能 (Select, Wire, Delete, Snap) ---
     def select_item(self, item, item_type):
         self.deselect_all()
         self.selected_item = (item, item_type)
@@ -460,8 +513,29 @@ class CircuitEditor:
 
     def export_netlist(self):
         node_map = self.solve_connectivity()
-        lines = ["* Generated by Python Circuit CAD", ".OPTIONS POST"]
+        # [修改] Netlist Header: 插入 Global Settings
+        lines = ["* Generated by Python Circuit CAD"]
         
+        # 1. Options
+        if self.global_settings["options"]:
+            lines.append(f".OPTIONS {self.global_settings['options']}")
+            
+        # 2. Temp
+        if self.global_settings["temp"]:
+            lines.append(f".TEMP {self.global_settings['temp']}")
+            
+        # 3. Library
+        lib_path = self.global_settings["lib_path"]
+        corner = self.global_settings["corner"]
+        if lib_path:
+            # HSPICE .LIB syntax: .LIB 'filename' entryname
+            lines.append(".PROTECT")
+            lines.append(f".LIB '{lib_path}' {corner}")
+            lines.append(".UNPROTECT")
+            
+        lines.append("") # 空行分隔
+
+        # 4. Components
         for comp in self.components:
             if isinstance(comp, Pin): continue 
             abs_terms = comp.get_abs_terminals()
@@ -488,11 +562,10 @@ class CircuitEditor:
                 line = f"{comp.name} {' '.join(node_names)} {comp.value}"
             lines.append(line)
         
-        # [修改] 增加模擬指令的輸出
+        # 5. Simulation Settings
         lines.append("\n* --- Simulation Settings ---")
         for cmd, settings in self.sim_settings.items():
             if settings["active"]:
-                # 例如: .TRAN 1n 100n
                 lines.append(f"{cmd} {settings['params']}")
         
         lines.append(".END")
