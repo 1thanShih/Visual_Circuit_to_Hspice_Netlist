@@ -13,10 +13,7 @@ Visualize_Circuit is a lightweight circuit drawing tool built with Python and Tk
 
 ### 使用 Conda（推薦） / Using Conda (recommended)
 
-中文：
 建議使用 `env.yaml` 或 `Makefile` 建立 Conda 環境後執行。
-
-English:
 Use the provided `env.yaml` to create a Conda environment, then run the app.
 
 ```bash
