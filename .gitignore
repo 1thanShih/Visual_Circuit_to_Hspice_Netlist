@@ -18,3 +18,7 @@ circuit_cad_env/
 
 .DS_Store
 Thumbs.db
+
+# Ignore JSON and SP files (build outputs / test artifacts)
+*.json
+*.sp
