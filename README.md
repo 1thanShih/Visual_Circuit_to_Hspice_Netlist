@@ -62,3 +62,5 @@ The `Makefile` has `setup` (creates Conda env) and `run` (starts the app). `make
 
 注意 / Note: the repository `.gitignore` currently ignores `*.sp` and `*.json` to avoid committing exported artifacts. If you want to keep exports under version control, remove those patterns from `.gitignore`.
 
+
+
